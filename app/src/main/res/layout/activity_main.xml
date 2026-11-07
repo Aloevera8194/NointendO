@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    android:orientation="vertical">
+
+    <!-- Top bar: logo (center) + settings icon (end) -->
+    <RelativeLayout
+        android:id="@+id/headerLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:clipChildren="false"
+        android:clipToPadding="false">
+
+        <ImageView
+            android:layout_width="144dp"
+            android:layout_height="144dp"
+            android:layout_centerHorizontal="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="-40dp"
+            android:layout_marginBottom="-20dp"
+            android:src="@drawable/logo"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/app_name" />
+
+        <ImageButton
+            android:id="@+id/viewToggleButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="8dp"
+            android:layout_marginStart="32dp"
+            android:src="@drawable/ic_view_grid"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/switch_to_grid" />
+
+        <ImageButton
+            android:id="@+id/settingsButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="32dp"
+            android:src="@drawable/ic_settings"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/settings" />
+
+        <ImageButton
+            android:id="@+id/joinMultiplayerButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_toStartOf="@id/settingsButton"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="8dp"
+            android:src="@drawable/ic_multiplayer"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/netplay_join" />
+    </RelativeLayout>
+
+    <!-- Long-press hint bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/bg_card_yellow"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp">
+
+        <ImageView
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_info"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/hint_long_press_game"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="13sp" />
+
+    </LinearLayout>
+
+    <!-- Library scan: only while new or changed files are being read -->
+    <LinearLayout
+        android:id="@+id/scanProgressGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginBottom="8dp"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/scanProgressText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="13sp" />
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/scanProgressBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:indicatorColor="@color/brand_blue"
+            app:trackCornerRadius="2dp" />
+    </LinearLayout>
+
+    <!-- Content area with pull-to-refresh -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipeRefreshLayout"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <!-- No folder picked: single centered button -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/pickFolderButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:paddingStart="32dp"
+                android:paddingEnd="32dp"
+                android:textColor="@android:color/white"
+                android:text="@string/open_games_folder"
+                android:visibility="visible" />
+
+            <!-- Folder picked: game list -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/romRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scrollbars="vertical"
+                android:clipToPadding="false"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:visibility="gone" />
+
+            <!-- Folder picked but no games found -->
+            <TextView
+                android:id="@+id/emptyRomListText"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:padding="32dp"
+                android:text="@string/no_games_in_folder"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="15sp"
+                android:visibility="gone" />
+
+        </FrameLayout>
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <!-- Hidden compat views required by existing code -->
+    <TextView android:id="@+id/statusText" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" android:text="@string/initial_status" />
+    <TextView android:id="@+id/configPathText" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+    <TextView android:id="@+id/romFolderText" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+    <TextView android:id="@+id/gamesHeaderText" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" android:text="@string/games_header" />
+    <ImageView android:id="@+id/framePreviewImage" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" android:contentDescription="@string/frame_preview_label" />
+    <TextView android:id="@+id/framePreviewLabel" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" android:text="@string/frame_preview_label" />
+    <TextView android:id="@+id/statusLabel" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" android:text="@string/status_label" />
+    <TextView android:id="@+id/configPathLabel" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" android:text="@string/config_path_label" />
+
+</LinearLayout>

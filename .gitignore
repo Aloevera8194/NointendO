@@ -1,0 +1,44 @@
+# Gradle
+.gradle/
+build/
+**/build/
+local.properties
+*.iml
+
+# Android Studio
+.idea/
+*.hprof
+captures/
+
+# Generated Android release outputs
+app/release/
+
+# One-off Play/ADI registration artifact
+app/src/main/assets/adi-registration.properties
+
+# Native build artifacts
+**/.cxx/
+third_party/mupen64plus-libretro-nx/libretro/obj/
+third_party/mupen64plus-libretro-nx/libretro/libs/
+**/*.so
+**/*.o
+**/*.a
+
+# Keys / secrets
+keystore.properties
+*.jks
+*.keystore
+*.p12
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Windows build artifacts
+*.lib
+*.clw
+*.obj
+*.exp
