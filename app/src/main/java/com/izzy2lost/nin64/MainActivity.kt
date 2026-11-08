@@ -204,11 +204,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        if (!libraryCache.hasSnapshot(folderUri)) {
+            restoreSharedLibraryCache(folderUri)
+        }
         val cached = libraryCache.load(folderUri)
         showRoms(cached.values.mapNotNull { it.entry })
         swipeRefreshLayout.isRefreshing = false
 
         if (libraryCache.hasSnapshot(folderUri)) {
+            saveSharedLibraryCache(folderUri)
             warmCoverCache(romEntries.toList())
             updateEmptyState()
             return
@@ -431,7 +435,33 @@ class MainActivity : AppCompatActivity() {
             file to entry?.let { it.copy(coverFile = coverFileNameFor(it) ?: it.coverFile) }
         }
         libraryCache.save(folderUri, withCovers)
+        saveSharedLibraryCache(folderUri)
         return withCovers.mapNotNull { it.second }
+    }
+
+    private fun restoreSharedLibraryCache(folderUri: Uri) {
+        runCatching {
+            val root = DocumentFile.fromTreeUri(this, folderUri) ?: return
+            val cacheFile = root.findFile("NointendO-library-cache.json") ?: return
+            val json = contentResolver.openInputStream(cacheFile.uri)
+                ?.bufferedReader()
+                ?.use { it.readText() }
+                ?: return
+            libraryCache.restore(folderUri, json)
+        }
+    }
+
+    private fun saveSharedLibraryCache(folderUri: Uri) {
+        runCatching {
+            val root = DocumentFile.fromTreeUri(this, folderUri) ?: return
+            val cacheFile = root.findFile("NointendO-library-cache.json")
+                ?: root.createFile("application/json", "NointendO-library-cache.json")
+                ?: return
+            val json = libraryCache.snapshot(folderUri) ?: return
+            contentResolver.openOutputStream(cacheFile.uri, "wt")
+                ?.bufferedWriter()
+                ?.use { it.write(json) }
+        }
     }
 
     private fun sameRom(first: RomEntry, second: RomEntry): Boolean {

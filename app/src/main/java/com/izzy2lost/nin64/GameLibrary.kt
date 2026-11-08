@@ -1,6 +1,7 @@
 package com.izzy2lost.nin64
 
 import android.net.Uri
+import android.provider.DocumentsContract
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -68,20 +69,59 @@ internal class LibraryCache(private val file: File) {
             root.optJSONArray("files") != null
     }
 
-    /** The scan of [folder] keyed by document URI, in library order; empty if there is none. */
     fun load(folder: Uri): LinkedHashMap<String, Scanned> {
         val scanned = LinkedHashMap<String, Scanned>()
         val root = runCatching { JSONObject(file.readText()) }.getOrNull() ?: return scanned
         if (root.optString("folder") != folder.toString()) return scanned
-
         val files = root.optJSONArray("files") ?: return scanned
+
         for (i in 0 until files.length()) {
-            val item = files.getJSONObject(i)
-            val uri = item.getString("uri")
-            val entry = item.optJSONObject("game")?.let { game -> game.toRomEntry(Uri.parse(uri)) }
-            scanned[uri] = Scanned(item.getLong("size"), item.getLong("modified"), entry)
+            runCatching {
+                val item = files.getJSONObject(i)
+                val uri = item.getString("uri")
+                val entry = item.optJSONObject("game")?.let { game ->
+                    game.toRomEntry(Uri.parse(uri))
+                }
+                scanned[uri] = Scanned(
+                    item.getLong("size"),
+                    item.getLong("modified"),
+                    entry
+                )
+            }
         }
         return scanned
+    }
+
+    fun snapshot(folder: Uri): String? {
+        val root = runCatching { JSONObject(file.readText()) }.getOrNull() ?: return null
+        if (root.optString("folder") != folder.toString()) return null
+        if (root.optJSONArray("files") == null) return null
+        return root.toString()
+    }
+
+    fun restore(folder: Uri, snapshot: String): Boolean {
+        val root = runCatching { JSONObject(snapshot) }.getOrNull() ?: return false
+        val files = root.optJSONArray("files") ?: return false
+        val oldFolder = root.optString("folder")
+        if (oldFolder.isBlank()) return false
+
+        for (i in 0 until files.length()) {
+            runCatching {
+                val item = files.getJSONObject(i)
+                val oldUri = Uri.parse(item.getString("uri"))
+                val documentId = DocumentsContract.getDocumentId(oldUri)
+                val newUri = DocumentsContract.buildDocumentUriUsingTree(folder, documentId)
+                item.put("uri", newUri.toString())
+            }.onFailure {
+                return false
+            }
+        }
+
+        root.put("folder", folder.toString())
+        return runCatching {
+            writeRoot(root)
+            hasSnapshot(folder)
+        }.getOrDefault(false)
     }
 
     fun save(folder: Uri, scanned: List<Pair<LibraryFile, RomEntry?>>) {
@@ -95,11 +135,31 @@ internal class LibraryCache(private val file: File) {
                     .put("game", entry?.toJson() ?: JSONObject.NULL)
             )
         }
-        val root = JSONObject().put("folder", folder.toString()).put("files", files)
+        writeRoot(JSONObject().put("folder", folder.toString()).put("files", files))
+    }
 
+    private fun writeRoot(root: JSONObject) {
+        file.parentFile?.mkdirs()
         val temp = File(file.path + ".tmp")
+        val backup = File(file.path + ".bak")
+
         temp.writeText(root.toString())
-        if (!temp.renameTo(file)) temp.delete()
+        JSONObject(temp.readText())
+
+        if (backup.exists() && !backup.delete()) {
+            throw java.io.IOException("Não foi possível limpar o backup do índice")
+        }
+
+        if (file.exists() && !file.renameTo(backup)) {
+            throw java.io.IOException("Não foi possível preservar o índice anterior")
+        }
+
+        if (!temp.renameTo(file)) {
+            if (backup.exists()) backup.renameTo(file)
+            throw java.io.IOException("Não foi possível substituir o índice")
+        }
+
+        if (backup.exists()) backup.delete()
     }
 
     private fun RomEntry.toJson(): JSONObject =
