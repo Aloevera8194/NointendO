@@ -277,7 +277,15 @@ class MainActivity : AppCompatActivity() {
     private data class GameGroup(
         val title: String,
         val entries: List<RomEntry>,
+        val coverPath: String? = null,
     )
+
+    private fun catalogKey(value: String): String =
+        java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+            .replace("\\p{Mn}+".toRegex(), "")
+            .lowercase(java.util.Locale.ROOT)
+            .replace("[^a-z0-9]+".toRegex(), " ")
+            .trim()
 
     private fun showRoms(roms: List<RomEntry>) {
         romEntries.clear()
@@ -285,16 +293,41 @@ class MainActivity : AppCompatActivity() {
 
         val grouped = LinkedHashMap<String, MutableList<RomEntry>>()
         for (entry in roms) {
-            val key = entry.cleanDisplayName().trim().lowercase(java.util.Locale.ROOT)
+            val key = catalogKey(entry.cleanDisplayName())
             grouped.getOrPut(key) { mutableListOf() }.add(entry)
         }
 
+        val catalog = runCatching { GameCatalog.load(this) }.getOrDefault(emptyList())
+        val catalogByKey = catalog.associateBy { catalogKey(it.title) }
+
         gameGroups.clear()
-        grouped.values.forEach { entries ->
+        grouped.forEach { (key, entries) ->
             val first = entries.first()
-            gameGroups.add(GameGroup(first.cleanDisplayName(), entries))
+            val catalogGame = catalogByKey[key]
+            gameGroups.add(
+                GameGroup(
+                    title = catalogGame?.title ?: first.cleanDisplayName(),
+                    entries = entries,
+                    coverPath = catalogGame?.coverPath
+                )
+            )
         }
 
+        val installedKeys = grouped.keys
+        catalog.forEach { game ->
+            val key = catalogKey(game.title)
+            if (key !in installedKeys) {
+                gameGroups.add(
+                    GameGroup(
+                        title = game.title,
+                        entries = emptyList(),
+                        coverPath = game.coverPath
+                    )
+                )
+            }
+        }
+
+        gameGroups.sortBy { catalogKey(it.title) }
         romRecyclerView.adapter?.notifyDataSetChanged()
         updateGamesHeader(gameGroups.size)
         emptyRomListText.visibility =
@@ -303,8 +336,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun showCartridgePicker(group: GameGroup, optionsOnly: Boolean = false) {
         val entries = group.entries
-        val labels = entries.map { it.fileName }.toTypedArray()
+        if (entries.isEmpty()) {
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(group.title)
+                .setMessage("Nenhuma ROM instalada para este jogo.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
 
+        val labels = entries.map { it.fileName }.toTypedArray()
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(group.title)
             .setItems(labels) { _, which ->
@@ -353,10 +394,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateEmptyState() {
         val hasFolderConfigured = readSavedRomFolderUri() != null
-        pickFolderButton.visibility = if (hasFolderConfigured) android.view.View.GONE else android.view.View.VISIBLE
-        refreshGamesButton.visibility = if (hasFolderConfigured) android.view.View.VISIBLE else android.view.View.GONE
-        romRecyclerView.visibility = if (hasFolderConfigured) android.view.View.VISIBLE else android.view.View.GONE
-        if (!hasFolderConfigured) emptyRomListText.visibility = android.view.View.GONE
+        pickFolderButton.visibility =
+            if (hasFolderConfigured) android.view.View.GONE else android.view.View.VISIBLE
+        refreshGamesButton.visibility = android.view.View.GONE
+        romRecyclerView.visibility = android.view.View.VISIBLE
+        emptyRomListText.visibility =
+            if (gameGroups.isEmpty() && !scanning) android.view.View.VISIBLE else android.view.View.GONE
         swipeRefreshLayout.isEnabled = hasFolderConfigured
     }
 
@@ -1506,8 +1549,12 @@ class MainActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             holder as RomViewHolder
             val group = gameGroups[position]
-            val entry = group.entries.first()
-            holder.text.text = entry.listLabel()
+            val count = group.entries.size
+            holder.text.text = if (count == 0) {
+                group.title
+            } else {
+                "${group.title}  •  $count ROM${if (count == 1) "" else "s"}"
+            }
             holder.card.strokeColor = strokeColors[position % 4]
             resetFocusHighlight(holder.itemView, LIST_FOCUS_SCALE, holder::style)
             holder.itemView.setOnClickListener {
@@ -1574,20 +1621,32 @@ class MainActivity : AppCompatActivity() {
             val rvWidth = (rv.width - rv.paddingStart - rv.paddingEnd).takeIf { it > 0 }
                 ?: resources.displayMetrics.widthPixels
             val coverHeight = (rvWidth / spanCount / 1.21f).toInt().coerceAtLeast(1)
-            val titleHeight = holder.title.lineHeight * 2 + holder.title.paddingTop + holder.title.paddingBottom
+            val titleHeight = holder.title.lineHeight * 3 + holder.title.paddingTop + holder.title.paddingBottom
             holder.itemView.layoutParams = holder.itemView.layoutParams.apply {
                 height = coverHeight + titleHeight
             }
 
             val group = gameGroups[position]
-            val entry = group.entries.first()
-            holder.title.text = entry.cleanDisplayName()
-            holder.cover.contentDescription = entry.cleanDisplayName()
+            val entry = group.entries.firstOrNull()
+            val count = group.entries.size
+            holder.title.text = if (count == 0) {
+                group.title
+            } else {
+                "${group.title}\n$count ROM${if (count == 1) "" else "s"}"
+            }
+            holder.cover.contentDescription = group.title
 
-            val coverFile = coverFileNameFor(entry)
-            val cachedCover = coverFile?.let {
-                CoverMatcher.cachedCoverOrQueueDownload(this@MainActivity, it, COVER_BASE_URL) {
-                    runOnUiThread { scheduleCoverRefresh() }
+            val cachedCover = if (!group.coverPath.isNullOrBlank() &&
+                java.io.File(group.coverPath).isFile
+            ) {
+                java.io.File(group.coverPath)
+            } else {
+                val coverFile = entry?.let(::coverFileNameFor)
+                    ?: CoverMatcher.resolve(listOf(group.title))
+                coverFile?.let {
+                    CoverMatcher.cachedCoverOrQueueDownload(this@MainActivity, it, COVER_BASE_URL) {
+                        runOnUiThread { scheduleCoverRefresh() }
+                    }
                 }
             }
 

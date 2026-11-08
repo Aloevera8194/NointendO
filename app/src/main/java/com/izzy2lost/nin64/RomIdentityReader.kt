@@ -9,6 +9,7 @@ internal data class RomIdentity(
     val headerTitle: String,
     val md5: String?,
     val crc: String?,
+    val gameCode: String?,
 )
 
 internal object RomIdentityReader {
@@ -21,6 +22,7 @@ internal object RomIdentityReader {
             headerTitle = readHeaderTitle(rom, fallbackName),
             md5 = rom.takeIf { it.isNotEmpty() }?.let(::md5Hex),
             crc = readCrc(rom),
+            gameCode = readCartridgeCode(rom),
         )
     }
 
@@ -68,6 +70,16 @@ internal object RomIdentityReader {
             .trim { it <= ' ' || it == '\u0000' }
 
         return title.ifBlank { fallbackName }
+    }
+
+    private fun readCartridgeCode(rom: ByteArray): String? {
+        if (rom.size <= 0x3E) return null
+
+        val code = rom.copyOfRange(0x3B, 0x3F)
+            .toString(StandardCharsets.US_ASCII)
+            .uppercase(Locale.US)
+
+        return code.takeIf { it.matches(Regex("[A-Z0-9]{4}")) }
     }
 
     private fun readCrc(rom: ByteArray): String? {

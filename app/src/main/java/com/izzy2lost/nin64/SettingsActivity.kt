@@ -43,6 +43,7 @@ class SettingsActivity : AppCompatActivity() {
             )
             prefs.edit().putString(PREF_ROM_FOLDER_URI, uri.toString()).apply()
             updateFolderDisplay()
+        installCatalogControls()
         }
     }
 
@@ -266,4 +267,93 @@ class SettingsActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
     }
+
+
+    private fun installCatalogControls() {
+        val content = findViewById<android.view.ViewGroup>(android.R.id.content)
+
+        fun findScroll(view: android.view.View): android.widget.ScrollView? {
+            if (view is android.widget.ScrollView) return view
+            if (view is android.view.ViewGroup) {
+                for (i in 0 until view.childCount) {
+                    findScroll(view.getChildAt(i))?.let { return it }
+                }
+            }
+            return null
+        }
+
+        val scroll = findScroll(content)
+        val parent = scroll?.getChildAt(0) as? android.view.ViewGroup ?: return
+
+        val section = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
+        }
+
+        val updateButton = MaterialButton(this).apply {
+            text = "Atualizar catálogo de jogos"
+            setOnClickListener {
+                isEnabled = false
+                thread {
+                    val result = runCatching { GameCatalog.update(this@SettingsActivity) }
+                    runOnUiThread {
+                        isEnabled = true
+                        result.onSuccess {
+                            Toast.makeText(
+                                this@SettingsActivity,
+                                "Catálogo atualizado: $it jogos",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }.onFailure {
+                            Toast.makeText(
+                                this@SettingsActivity,
+                                "Falha ao atualizar catálogo: ${it.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+            }
+        }
+
+        val addButton = MaterialButton(this).apply {
+            text = "Adicionar jogo manualmente"
+            setOnClickListener {
+                val input = android.widget.EditText(this@SettingsActivity).apply {
+                    hint = "Nome do jogo"
+                    setSingleLine(true)
+                }
+                MaterialAlertDialogBuilder(this@SettingsActivity)
+                    .setTitle("Novo jogo")
+                    .setView(input)
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Adicionar") { _, _ ->
+                        val title = input.text.toString().trim()
+                        if (title.isNotBlank()) {
+                            runCatching {
+                                GameCatalog.addManual(this@SettingsActivity, title)
+                            }.onSuccess {
+                                Toast.makeText(
+                                    this@SettingsActivity,
+                                    "Jogo adicionado",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }.onFailure {
+                                Toast.makeText(
+                                    this@SettingsActivity,
+                                    "Não foi possível adicionar o jogo",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                    .show()
+            }
+        }
+
+        section.addView(updateButton)
+        section.addView(addButton)
+        parent.addView(section)
+    }
+
 }
