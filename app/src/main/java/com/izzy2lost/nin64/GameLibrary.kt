@@ -62,6 +62,12 @@ internal class LibraryCache(private val file: File) {
             size == libraryFile.size && modified == libraryFile.modified
     }
 
+    fun hasSnapshot(folder: Uri): Boolean {
+        val root = runCatching { JSONObject(file.readText()) }.getOrNull() ?: return false
+        return root.optString("folder") == folder.toString() &&
+            root.optJSONArray("files") != null
+    }
+
     /** The scan of [folder] keyed by document URI, in library order; empty if there is none. */
     fun load(folder: Uri): LinkedHashMap<String, Scanned> {
         val scanned = LinkedHashMap<String, Scanned>()

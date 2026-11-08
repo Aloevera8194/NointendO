@@ -50,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var framePreviewImage: ImageView
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
     private lateinit var pickFolderButton: android.widget.Button
+    private lateinit var refreshGamesButton: android.widget.Button
     private lateinit var emptyRomListText: TextView
     private lateinit var viewToggleButton: ImageButton
     private lateinit var scanProgressGroup: View
@@ -58,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var listAdapter: ListAdapter
     private lateinit var gridAdapter: GridAdapter
     private val romEntries = mutableListOf<RomEntry>()
+    private val gameGroups = mutableListOf<GameGroup>()
     private var viewMode: String = VIEW_MODE_LIST
     private var pendingTexturePackEntry: RomEntry? = null
     @Volatile private var coverWarmupGeneration = 0
@@ -113,6 +115,7 @@ class MainActivity : AppCompatActivity() {
         swipeRefreshLayout.applyBottomContentInsets()
 
         pickFolderButton = findViewById(R.id.pickFolderButton)
+        refreshGamesButton = findViewById(R.id.refreshGamesButton)
         emptyRomListText = findViewById(R.id.emptyRomListText)
         viewToggleButton = findViewById(R.id.viewToggleButton)
         scanProgressGroup = findViewById(R.id.scanProgressGroup)
@@ -144,7 +147,8 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.getColor(this, R.color.brand_green),
             ContextCompat.getColor(this, R.color.brand_red),
         )
-        swipeRefreshLayout.setOnRefreshListener { loadAvailableRoms() }
+        swipeRefreshLayout.setOnRefreshListener { refreshLibrary() }
+        refreshGamesButton.setOnClickListener { refreshLibrary() }
 
         pickFolderButton.setOnClickListener {
             folderPicker.launch(readSavedRomFolderUri())
@@ -188,24 +192,49 @@ class MainActivity : AppCompatActivity() {
         updateRomFolderLabel(folderUri)
         clearPreview()
 
-        val generation = ++scanGeneration
-        scanning = folderUri != null
-
-        val cached = folderUri?.let { libraryCache.load(it) }
-            ?: linkedMapOf<String, LibraryCache.Scanned>()
-
-        if (folderUri != loadedFolderUri) {
-            loadedFolderUri = folderUri
-            showRoms(cached.values.mapNotNull { it.entry })
-        }
+        ++scanGeneration
+        scanning = false
+        scanProgressGroup.visibility = View.GONE
+        loadedFolderUri = folderUri
 
         if (folderUri == null) {
+            showRoms(emptyList())
             swipeRefreshLayout.isRefreshing = false
             updateEmptyState()
             return
         }
 
-        val incremental = romEntries.isEmpty()
+        val cached = libraryCache.load(folderUri)
+        showRoms(cached.values.mapNotNull { it.entry })
+        swipeRefreshLayout.isRefreshing = false
+
+        if (libraryCache.hasSnapshot(folderUri)) {
+            warmCoverCache(romEntries.toList())
+            updateEmptyState()
+            return
+        }
+
+        refreshLibrary()
+    }
+
+    private fun refreshLibrary() {
+        val folderUri = readSavedRomFolderUri()
+        updateRomFolderLabel(folderUri)
+
+        if (folderUri == null) {
+            loadAvailableRoms()
+            return
+        }
+
+        val generation = ++scanGeneration
+        val cached = libraryCache.load(folderUri)
+        val cachedEntries = cached.values.mapNotNull { it.entry }
+
+        showRoms(cachedEntries)
+        scanning = true
+        refreshGamesButton.isEnabled = false
+        val incremental = cachedEntries.isEmpty()
+
         Thread {
             val result = runCatching {
                 scanRomFolder(folderUri, cached) { read, toRead, found ->
@@ -219,15 +248,19 @@ class MainActivity : AppCompatActivity() {
 
             runOnUiThread {
                 if (generation != scanGeneration) return@runOnUiThread
+
                 scanning = false
                 scanProgressGroup.visibility = View.GONE
+                refreshGamesButton.isEnabled = true
+
                 result.onSuccess { roms ->
                     showRoms(roms)
                     warmCoverCache(roms)
                 }.onFailure { error ->
-                    showRoms(emptyList())
+                    if (cachedEntries.isEmpty()) showRoms(emptyList())
                     statusText.text = error.stackTraceToString()
                 }
+
                 swipeRefreshLayout.isRefreshing = false
                 updateEmptyState()
             }
@@ -237,14 +270,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private data class GameGroup(
+        val title: String,
+        val entries: List<RomEntry>,
+    )
+
     private fun showRoms(roms: List<RomEntry>) {
-        if (roms != romEntries) {
-            romEntries.clear()
-            romEntries.addAll(roms)
-            romRecyclerView.adapter?.notifyDataSetChanged()
+        romEntries.clear()
+        romEntries.addAll(roms)
+
+        val grouped = LinkedHashMap<String, MutableList<RomEntry>>()
+        for (entry in roms) {
+            val key = entry.cleanDisplayName().trim().lowercase(java.util.Locale.ROOT)
+            grouped.getOrPut(key) { mutableListOf() }.add(entry)
         }
-        updateGamesHeader(roms.size)
-        emptyRomListText.visibility = if (roms.isEmpty() && !scanning) View.VISIBLE else View.GONE
+
+        gameGroups.clear()
+        grouped.values.forEach { entries ->
+            val first = entries.first()
+            gameGroups.add(GameGroup(first.cleanDisplayName(), entries))
+        }
+
+        romRecyclerView.adapter?.notifyDataSetChanged()
+        updateGamesHeader(gameGroups.size)
+        emptyRomListText.visibility =
+            if (gameGroups.isEmpty() && !scanning) View.VISIBLE else View.GONE
+    }
+
+    private fun showCartridgePicker(group: GameGroup, optionsOnly: Boolean = false) {
+        val entries = group.entries
+        val labels = entries.map { it.fileName }.toTypedArray()
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(group.title)
+            .setItems(labels) { _, which ->
+                val selected = entries.getOrNull(which) ?: return@setItems
+                if (optionsOnly) showGameOptions(selected)
+                else bootSelectedRom(selected)
+            }
+            .show()
     }
 
     private fun showScanProgress(read: Int, toRead: Int) {
@@ -286,6 +350,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateEmptyState() {
         val hasFolderConfigured = readSavedRomFolderUri() != null
         pickFolderButton.visibility = if (hasFolderConfigured) android.view.View.GONE else android.view.View.VISIBLE
+        refreshGamesButton.visibility = if (hasFolderConfigured) android.view.View.VISIBLE else android.view.View.GONE
         romRecyclerView.visibility = if (hasFolderConfigured) android.view.View.VISIBLE else android.view.View.GONE
         if (!hasFolderConfigured) emptyRomListText.visibility = android.view.View.GONE
         swipeRefreshLayout.isEnabled = hasFolderConfigured
@@ -1410,21 +1475,22 @@ class MainActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             holder as RomViewHolder
-            val entry = romEntries[position]
+            val group = gameGroups[position]
+            val entry = group.entries.first()
             holder.text.text = entry.listLabel()
             holder.card.strokeColor = strokeColors[position % 4]
             resetFocusHighlight(holder.itemView, LIST_FOCUS_SCALE, holder::style)
             holder.itemView.setOnClickListener {
                 val pos = holder.bindingAdapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
-                    romEntries.getOrNull(pos)?.let(::bootSelectedRom)
+                    gameGroups.getOrNull(pos)?.let { showCartridgePicker(it) }
                 }
             }
             holder.itemView.setOnLongClickListener {
                 val pos = holder.bindingAdapterPosition
-                val entry = if (pos != RecyclerView.NO_POSITION) romEntries.getOrNull(pos) else null
-                if (entry != null) {
-                    showGameOptions(entry)
+                val group = if (pos != RecyclerView.NO_POSITION) gameGroups.getOrNull(pos) else null
+                if (group != null) {
+                    showCartridgePicker(group, optionsOnly = true)
                     true
                 } else {
                     false
@@ -1432,7 +1498,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        override fun getItemCount() = romEntries.size
+        override fun getItemCount() = gameGroups.size
     }
 
     private inner class GridAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
@@ -1483,7 +1549,8 @@ class MainActivity : AppCompatActivity() {
                 height = coverHeight + titleHeight
             }
 
-            val entry = romEntries[position]
+            val group = gameGroups[position]
+            val entry = group.entries.first()
             holder.title.text = entry.cleanDisplayName()
             holder.cover.contentDescription = entry.cleanDisplayName()
 
@@ -1508,14 +1575,14 @@ class MainActivity : AppCompatActivity() {
             holder.itemView.setOnClickListener {
                 val pos = holder.bindingAdapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
-                    romEntries.getOrNull(pos)?.let(::bootSelectedRom)
+                    gameGroups.getOrNull(pos)?.let { showCartridgePicker(it) }
                 }
             }
             holder.itemView.setOnLongClickListener {
                 val pos = holder.bindingAdapterPosition
-                val entry = if (pos != RecyclerView.NO_POSITION) romEntries.getOrNull(pos) else null
-                if (entry != null) {
-                    showGameOptions(entry)
+                val group = if (pos != RecyclerView.NO_POSITION) gameGroups.getOrNull(pos) else null
+                if (group != null) {
+                    showCartridgePicker(group, optionsOnly = true)
                     true
                 } else {
                     false
@@ -1530,7 +1597,7 @@ class MainActivity : AppCompatActivity() {
             super.onViewRecycled(holder)
         }
 
-        override fun getItemCount() = romEntries.size
+        override fun getItemCount() = gameGroups.size
     }
 
     private data class PerGameOptions(
