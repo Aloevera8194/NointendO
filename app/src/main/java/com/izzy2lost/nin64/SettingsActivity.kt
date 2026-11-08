@@ -23,7 +23,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import kotlin.concurrent.thread
 
-class SettingsActivity : AppCompatActivity()
+class SettingsActivity : AppCompatActivity() {
 
     private companion object {
         const val PREF_ROM_FOLDER_URI = "rom_folder_uri"
