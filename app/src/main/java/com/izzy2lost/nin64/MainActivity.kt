@@ -190,11 +190,15 @@ class MainActivity : AppCompatActivity() {
 
         val generation = ++scanGeneration
         scanning = folderUri != null
+
+        val cached = folderUri?.let { libraryCache.load(it) }
+            ?: linkedMapOf<String, LibraryCache.Scanned>()
+
         if (folderUri != loadedFolderUri) {
             loadedFolderUri = folderUri
-            // Show the last scan straight away; the rescan below only reads what changed.
-            showRoms(folderUri?.let { libraryCache.load(it).values.mapNotNull { scanned -> scanned.entry } }.orEmpty())
+            showRoms(cached.values.mapNotNull { it.entry })
         }
+
         if (folderUri == null) {
             swipeRefreshLayout.isRefreshing = false
             updateEmptyState()
@@ -204,7 +208,7 @@ class MainActivity : AppCompatActivity() {
         val incremental = romEntries.isEmpty()
         Thread {
             val result = runCatching {
-                scanRomFolder(folderUri) { read, toRead, found ->
+                scanRomFolder(folderUri, cached) { read, toRead, found ->
                     runOnUiThread {
                         if (generation != scanGeneration) return@runOnUiThread
                         showScanProgress(read, toRead)
@@ -294,9 +298,9 @@ class MainActivity : AppCompatActivity() {
      */
     private fun scanRomFolder(
         folderUri: Uri,
+        cached: LinkedHashMap<String, LibraryCache.Scanned>,
         onProgress: (read: Int, toRead: Int, found: List<RomEntry>?) -> Unit,
     ): List<RomEntry> {
-        val cached = libraryCache.load(folderUri)
         val files = listLibraryFiles(folderUri)
         val toRead = files.count { file ->
             val old = cached[file.uri.toString()]
@@ -308,7 +312,8 @@ class MainActivity : AppCompatActivity() {
         val scanned = mutableListOf<Pair<LibraryFile, RomEntry?>>()
         var read = 0
         var lastPublished = 0L
-        for (file in files) {
+
+        for (file in files.sortedBy { SevenZRoms.isSevenZip(it.name) }) {
             val hit = cached[file.uri.toString()]?.takeIf {
                 it.matches(file) &&
                     (!SevenZRoms.isSevenZip(file.name) || it.entry != null)
@@ -317,10 +322,38 @@ class MainActivity : AppCompatActivity() {
                 scanned += file to hit.entry
                 continue
             }
-            // A file that cannot be read is left out of the cache, so the next scan retries it.
-            runCatching {
-                romEntryFor(file.name, documentUri = file.uri) { contentResolver.openInputStream(file.uri) }
-            }.onSuccess { entry -> scanned += file to entry }
+
+            val entry = runCatching {
+                romEntryFor(file.name, documentUri = file.uri) {
+                    contentResolver.openInputStream(file.uri)
+                }
+            }.getOrNull()
+
+            if (entry?.sevenZipEntryName != null) {
+                val alreadyExists = scanned.asSequence()
+                    .mapNotNull { it.second }
+                    .any { sameRom(it, entry) }
+
+                if (alreadyExists) {
+                    val deleted = runCatching {
+                        DocumentFile.fromSingleUri(this, file.uri)?.delete() == true
+                    }.getOrDefault(false)
+
+                    if (!deleted) scanned += file to entry
+                } else {
+                    val extracted = runCatching {
+                        extractSevenZipToLibrary(folderUri, file, entry)
+                    }.getOrNull()
+
+                    if (extracted != null) {
+                        scanned += extracted
+                    } else {
+                        scanned += file to entry
+                    }
+                }
+            } else if (entry != null) {
+                scanned += file to entry
+            }
 
             read++
             val now = System.currentTimeMillis()
@@ -334,6 +367,79 @@ class MainActivity : AppCompatActivity() {
         }
         libraryCache.save(folderUri, withCovers)
         return withCovers.mapNotNull { it.second }
+    }
+
+    private fun sameRom(first: RomEntry, second: RomEntry): Boolean {
+        val firstMd5 = first.md5
+        val secondMd5 = second.md5
+
+        if (!firstMd5.isNullOrBlank() && !secondMd5.isNullOrBlank()) {
+            return firstMd5.equals(secondMd5, ignoreCase = true)
+        }
+
+        val firstCrc = first.crc
+        val secondCrc = second.crc
+
+        return !firstCrc.isNullOrBlank() &&
+            !secondCrc.isNullOrBlank() &&
+            firstCrc.equals(secondCrc, ignoreCase = true)
+    }
+
+    private fun extractSevenZipToLibrary(
+        folderUri: Uri,
+        archive: LibraryFile,
+        entry: RomEntry,
+    ): Pair<LibraryFile, RomEntry>? {
+        val entryName = entry.sevenZipEntryName ?: return null
+        val root = DocumentFile.fromTreeUri(this, folderUri) ?: return null
+        val baseName = entryName.substringAfterLast('/').substringAfterLast('\\')
+            .takeIf { isRomFile(it) } ?: return null
+
+        var outputName = baseName
+        var suffix = 2
+        while (root.findFile(outputName) != null) {
+            val dot = baseName.lastIndexOf('.')
+            outputName = if (dot > 0) {
+                "${baseName.substring(0, dot)} ($suffix)${baseName.substring(dot)}"
+            } else {
+                "$baseName ($suffix)"
+            }
+            suffix++
+        }
+
+        val target = root.createFile("application/octet-stream", outputName) ?: return null
+
+        try {
+            val input = contentResolver.openInputStream(archive.uri)
+                ?: throw java.io.IOException("Não foi possível abrir o 7z")
+            val output = contentResolver.openOutputStream(target.uri, "w")
+                ?: throw java.io.IOException("Sem permissão para gravar a ROM")
+
+            SevenZRoms.extractTo(this, input, entryName, output)
+
+            if (target.length() == 0L) {
+                throw java.io.IOException("A ROM extraída está vazia")
+            }
+
+            val validated = romEntryFor(target.name ?: outputName, documentUri = target.uri) {
+                contentResolver.openInputStream(target.uri)
+            } ?: throw java.io.IOException("A ROM extraída não passou na validação")
+
+            val archiveDocument = DocumentFile.fromSingleUri(this, archive.uri)
+            if (archiveDocument?.delete() != true) {
+                throw java.io.IOException("Não foi possível excluir o 7z original")
+            }
+
+            return LibraryFile(
+                target.uri,
+                target.name ?: outputName,
+                target.length(),
+                target.lastModified(),
+            ) to validated
+        } catch (error: Exception) {
+            target.delete()
+            throw error
+        }
     }
 
     /** Every game file under the tree, folder by folder in name order, from one query per folder. */
@@ -511,12 +617,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun persistRomFolderPermission(uri: Uri) {
-        try {
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        } catch (_: SecurityException) {
+        for (flag in listOf(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )) {
+            try {
+                contentResolver.takePersistableUriPermission(uri, flag)
+            } catch (_: SecurityException) {
+            }
         }
     }
 
@@ -655,7 +763,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun gridSpanCount(): Int =
-        if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 4 else 2
+        if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 4 else 3
 
     private fun toggleViewMode() {
         viewMode = if (viewMode == VIEW_MODE_LIST) VIEW_MODE_GRID else VIEW_MODE_LIST

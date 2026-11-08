@@ -39,6 +39,39 @@ internal object SevenZRoms {
         null
     }
 
+    fun extractTo(
+        context: Context,
+        input: InputStream,
+        entryName: String,
+        output: java.io.OutputStream,
+    ): Long {
+        return output.use { stream ->
+            val size = withArchive(context, input) { archive ->
+                var entry = archive.nextEntry
+                while (entry != null) {
+                    if (!entry.isDirectory && entry.name == entryName) {
+                        var total = 0L
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = archive.read(buffer, 0, buffer.size)
+                            if (count <= 0) break
+                            stream.write(buffer, 0, count)
+                            total += count
+                        }
+                        return@withArchive total
+                    }
+                    entry = archive.nextEntry
+                }
+                0L
+            } ?: 0L
+
+            if (size <= 0L) {
+                throw IOException("Could not extract $entryName from 7z archive")
+            }
+            size
+        }
+    }
+
     fun unpack(
         context: Context,
         key: String,
