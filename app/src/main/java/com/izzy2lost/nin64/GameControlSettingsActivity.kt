@@ -14,7 +14,6 @@ import com.google.android.material.button.MaterialButton
 class GameControlSettingsActivity : AppCompatActivity() {
     private lateinit var romKey: String
     private var gameTitle: String? = null
-    private val nativeAdPlacement by lazy { NativeAdPlacement(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,12 +45,6 @@ class GameControlSettingsActivity : AppCompatActivity() {
             Toast.makeText(this, getString(R.string.controls_per_game_reset_done), Toast.LENGTH_SHORT).show()
         }
 
-        nativeAdPlacement.loadInto(findViewById<FrameLayout>(R.id.controlsNativeAdContainer))
-    }
-
-    override fun onDestroy() {
-        nativeAdPlacement.destroy()
-        super.onDestroy()
     }
 
     companion object {

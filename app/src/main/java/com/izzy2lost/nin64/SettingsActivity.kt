@@ -23,20 +23,15 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import kotlin.concurrent.thread
 
-class SettingsActivity : AppCompatActivity(), NoAdsPurchaseManager.Listener {
+class SettingsActivity : AppCompatActivity()
 
     private companion object {
         const val PREF_ROM_FOLDER_URI = "rom_folder_uri"
     }
 
     private val prefs by lazy { getSharedPreferences(DisplayOptionsRepository.PREFS_NAME, MODE_PRIVATE) }
-    private val nativeAdPlacement by lazy { NativeAdPlacement(this) }
 
     private lateinit var folderPathText: TextView
-    private lateinit var removeAdsButton: ImageButton
-    private lateinit var settingsNativeAdContainer: FrameLayout
-    private lateinit var privacyOptionsRow: View
-    private var removeAdsPurchaseBusy = false
 
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -62,10 +57,6 @@ class SettingsActivity : AppCompatActivity(), NoAdsPurchaseManager.Listener {
         folderPathText = findViewById(R.id.folderPathText)
 
         findViewById<ImageButton>(R.id.backButton).setOnClickListener { finish() }
-        removeAdsButton = findViewById(R.id.removeAdsButton)
-        removeAdsButton.setOnClickListener {
-            showRemoveAdsPurchase()
-        }
         findViewById<ImageButton>(R.id.aboutButton).setOnClickListener {
             showAboutDialog()
         }
@@ -121,39 +112,24 @@ class SettingsActivity : AppCompatActivity(), NoAdsPurchaseManager.Listener {
         }
         updateCheevosAccountUi()
 
-        privacyOptionsRow = findViewById(R.id.privacyOptionsRow)
-        findViewById<MaterialButton>(R.id.privacyOptionsButton).setOnClickListener {
-            showPrivacyOptions()
-        }
 
         updateFolderDisplay()
-        settingsNativeAdContainer = findViewById(R.id.settingsNativeAdContainer)
-        updateRemoveAdsUi()
-        updatePrivacyOptionsUi()
-        nativeAdPlacement.loadInto(settingsNativeAdContainer)
     }
 
     override fun onStart() {
         super.onStart()
-        NoAdsPurchaseManager.addListener(this)
     }
 
     override fun onResume() {
         super.onResume()
         updateFolderDisplay()
-        NoAdsPurchaseManager.refreshEntitlement(this) {
-            updateRemoveAdsUi()
-        }
-        updatePrivacyOptionsUi()
     }
 
     override fun onStop() {
-        NoAdsPurchaseManager.removeListener(this)
         super.onStop()
     }
 
     override fun onDestroy() {
-        nativeAdPlacement.destroy()
         super.onDestroy()
     }
 
@@ -240,151 +216,6 @@ class SettingsActivity : AppCompatActivity(), NoAdsPurchaseManager.Listener {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
-    }
-
-    private fun showRemoveAdsPurchase() {
-        if (AdsController.areAdsRemoved(this)) {
-            showRemoveAdsAlreadyOwned()
-            return
-        }
-        if (removeAdsPurchaseBusy) return
-
-        removeAdsPurchaseBusy = true
-        updateRemoveAdsUi()
-        Toast.makeText(this, R.string.remove_ads_loading, Toast.LENGTH_SHORT).show()
-
-        NoAdsPurchaseManager.refreshEntitlement(this) { adsRemoved ->
-            if (!canShowBillingUi()) return@refreshEntitlement
-            if (adsRemoved) {
-                removeAdsPurchaseBusy = false
-                updateRemoveAdsUi()
-                showRemoveAdsAlreadyOwned()
-                return@refreshEntitlement
-            }
-
-            NoAdsPurchaseManager.queryRemoveAdsOffer(this) { offer, billingResult ->
-                if (!canShowBillingUi()) return@queryRemoveAdsOffer
-                removeAdsPurchaseBusy = false
-                updateRemoveAdsUi()
-
-                if (offer == null) {
-                    showRemoveAdsUnavailable(billingResult)
-                    return@queryRemoveAdsOffer
-                }
-
-                MaterialAlertDialogBuilder(this)
-                    .setIcon(R.drawable.no_ads_logo)
-                    .setTitle(R.string.remove_ads)
-                    .setMessage(getString(R.string.remove_ads_purchase_available, offer.formattedPrice))
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .setPositiveButton(R.string.remove_ads) { _, _ ->
-                        removeAdsPurchaseBusy = true
-                        updateRemoveAdsUi()
-                        NoAdsPurchaseManager.launchRemoveAdsPurchase(this, offer)
-                    }
-                    .show()
-            }
-        }
-    }
-
-    private fun showRemoveAdsAlreadyOwned() {
-        MaterialAlertDialogBuilder(this)
-            .setIcon(R.drawable.no_ads_logo)
-            .setTitle(R.string.remove_ads)
-            .setMessage(R.string.remove_ads_already_owned)
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
-    }
-
-    private fun showRemoveAdsUnavailable(billingResult: com.android.billingclient.api.BillingResult) {
-        val message = if (billingResult.responseCode == com.android.billingclient.api.BillingClient.BillingResponseCode.OK) {
-            getString(R.string.remove_ads_purchase_unavailable)
-        } else {
-            val detail = billingResult.debugMessage
-                .takeIf { it.isNotBlank() }
-                ?: "Google Play Billing response ${billingResult.responseCode}"
-            getString(R.string.remove_ads_purchase_failed, detail)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setIcon(R.drawable.no_ads_logo)
-            .setTitle(R.string.remove_ads)
-            .setMessage(message)
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
-    }
-
-    override fun onNoAdsEntitlementChanged(adsRemoved: Boolean) {
-        removeAdsPurchaseBusy = false
-        updateRemoveAdsUi()
-        if (adsRemoved) {
-            Toast.makeText(this, R.string.remove_ads_purchase_success, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    override fun onNoAdsPurchasePending() {
-        removeAdsPurchaseBusy = false
-        updateRemoveAdsUi()
-        Toast.makeText(this, R.string.remove_ads_purchase_pending, Toast.LENGTH_LONG).show()
-    }
-
-    override fun onNoAdsPurchaseCancelled() {
-        removeAdsPurchaseBusy = false
-        updateRemoveAdsUi()
-        Toast.makeText(this, R.string.remove_ads_purchase_cancelled, Toast.LENGTH_SHORT).show()
-    }
-
-    override fun onNoAdsPurchaseError(message: String) {
-        removeAdsPurchaseBusy = false
-        updateRemoveAdsUi()
-        Toast.makeText(this, getString(R.string.remove_ads_purchase_failed, message), Toast.LENGTH_LONG).show()
-    }
-
-    private fun updateRemoveAdsUi() {
-        if (!::removeAdsButton.isInitialized) return
-
-        val adsRemoved = AdsController.areAdsRemoved(this)
-        removeAdsButton.isEnabled = !adsRemoved && !removeAdsPurchaseBusy
-        removeAdsButton.alpha = when {
-            adsRemoved -> 0.45f
-            removeAdsPurchaseBusy -> 0.65f
-            else -> 1f
-        }
-
-        if (adsRemoved && ::settingsNativeAdContainer.isInitialized) {
-            nativeAdPlacement.destroy()
-            settingsNativeAdContainer.removeAllViews()
-            settingsNativeAdContainer.visibility = View.GONE
-        }
-    }
-
-    private fun showPrivacyOptions() {
-        ConsentManager.showPrivacyOptionsForm(this) { formError ->
-            if (isFinishing || isDestroyed) return@showPrivacyOptionsForm
-
-            if (formError != null) {
-                Toast.makeText(
-                    this,
-                    getString(R.string.privacy_options_failed, formError.message),
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
-            updatePrivacyOptionsUi()
-        }
-    }
-
-    private fun updatePrivacyOptionsUi() {
-        if (!::privacyOptionsRow.isInitialized) return
-
-        privacyOptionsRow.visibility = if (ConsentManager.isPrivacyOptionsRequired(this)) {
-            View.VISIBLE
-        } else {
-            View.GONE
-        }
-    }
-
-    private fun canShowBillingUi(): Boolean {
-        return !isFinishing && !isDestroyed
     }
 
     private fun showAboutDialog() {

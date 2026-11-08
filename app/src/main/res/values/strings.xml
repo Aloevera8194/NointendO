@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Nin64</string>
+    <string name="app_name">NointendO 64</string>
     <string name="open_games_folder">Open Games Folder</string>
     <string name="settings">Settings</string>
     <string name="settings_global_options">Global options</string>
@@ -97,20 +97,8 @@
     <string name="hint_long_press_game">Long press a game for per-game settings</string>
     <string name="ad_attribution">Ad</string>
     <string name="no_ads">No ads</string>
-    <string name="remove_ads">Remove ads</string>
-    <string name="remove_ads_loading">Opening Google Play...</string>
-    <string name="remove_ads_already_owned">Ads are already removed on this device.</string>
-    <string name="remove_ads_purchase_available">Remove all ads forever for %1$s?</string>
-    <string name="remove_ads_purchase_unavailable">The no-ads purchase is not available yet. Make sure the one-time product is active in Play Console.</string>
-    <string name="remove_ads_purchase_pending">Your purchase is pending. Ads will be removed after Google Play confirms payment.</string>
-    <string name="remove_ads_purchase_success">Thank you! Ads are now removed.</string>
-    <string name="remove_ads_purchase_cancelled">Purchase cancelled.</string>
-    <string name="remove_ads_purchase_failed">Could not complete the purchase: %1$s</string>
     <string name="about_nin64">About Nin64</string>
     <string name="settings_privacy_header">Privacy</string>
-    <string name="privacy_options">Privacy options</string>
-    <string name="privacy_options_description">Review or change the ad consent choices you made for this app.</string>
-    <string name="privacy_options_failed">Could not open privacy options: %1$s</string>
     <string name="about_link_unavailable">Could not open this link.</string>
     <string name="about_privacy_policy">Privacy Policy</string>
     <string name="about_source_code">Nin64 Source Code</string>

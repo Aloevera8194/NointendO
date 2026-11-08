@@ -25,7 +25,6 @@ class CheatManagerActivity : AppCompatActivity() {
     private var gameTitle: String? = null
     private var enabledCheatIds = mutableSetOf<String>()
     private var selectedOptions = mutableMapOf<String, String>()
-    private val nativeAdPlacement by lazy { NativeAdPlacement(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,18 +51,6 @@ class CheatManagerActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(16.dp, 10.dp, 16.dp, 24.dp)
         }
-        val nativeAdContainer = FrameLayout(this).apply {
-            visibility = View.GONE
-        }
-        container.addView(
-            nativeAdContainer,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { bottomMargin = 10.dp },
-        )
-        nativeAdPlacement.loadInto(nativeAdContainer)
-
         val game = CheatDatabase.findByCrc(this, romCrc)
         when {
             romCrc.isNullOrBlank() -> {
@@ -92,11 +79,6 @@ class CheatManagerActivity : AppCompatActivity() {
         setContentView(root)
         topBar.applyTopBarInsets()
         scrollView.applyBottomContentInsets()
-    }
-
-    override fun onDestroy() {
-        nativeAdPlacement.destroy()
-        super.onDestroy()
     }
 
     private fun createTopBar(): View = LinearLayout(this).apply {

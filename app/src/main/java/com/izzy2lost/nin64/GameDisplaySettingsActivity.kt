@@ -23,7 +23,6 @@ class GameDisplaySettingsActivity : AppCompatActivity() {
     private var gameTitle: String? = null
     private lateinit var aspectSpinner: Spinner
     private lateinit var resolutionSpinner: Spinner
-    private val nativeAdPlacement by lazy { NativeAdPlacement(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,12 +54,6 @@ class GameDisplaySettingsActivity : AppCompatActivity() {
             Toast.makeText(this, getString(R.string.display_per_game_reset_done), Toast.LENGTH_SHORT).show()
         }
 
-        nativeAdPlacement.loadInto(findViewById<FrameLayout>(R.id.displayNativeAdContainer))
-    }
-
-    override fun onDestroy() {
-        nativeAdPlacement.destroy()
-        super.onDestroy()
     }
 
     private fun bindDisplaySpinners() {
