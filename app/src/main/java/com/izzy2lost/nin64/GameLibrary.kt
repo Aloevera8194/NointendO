@@ -16,6 +16,7 @@ internal data class RomEntry(
     val localFile: File? = null,
     val documentUri: Uri? = null,
     val zipEntryName: String? = null,
+    val sevenZipEntryName: String? = null,
     /** The cover this game matched last time, shown before the cover index has loaded. */
     val coverFile: String? = null,
 ) {
@@ -105,6 +106,7 @@ internal class LibraryCache(private val file: File) {
             .putOpt("crc", crc)
             .putOpt("databaseName", databaseName)
             .putOpt("zipEntryName", zipEntryName)
+            .putOpt("sevenZipEntryName", sevenZipEntryName)
             .putOpt("coverFile", coverFile)
 
     private fun JSONObject.toRomEntry(documentUri: Uri): RomEntry =
@@ -118,6 +120,7 @@ internal class LibraryCache(private val file: File) {
             databaseName = optStringOrNull("databaseName"),
             documentUri = documentUri,
             zipEntryName = optStringOrNull("zipEntryName"),
+            sevenZipEntryName = optStringOrNull("sevenZipEntryName"),
             coverFile = optStringOrNull("coverFile"),
         )
 

@@ -298,14 +298,21 @@ class MainActivity : AppCompatActivity() {
     ): List<RomEntry> {
         val cached = libraryCache.load(folderUri)
         val files = listLibraryFiles(folderUri)
-        val toRead = files.count { file -> cached[file.uri.toString()]?.matches(file) != true }
+        val toRead = files.count { file ->
+            val old = cached[file.uri.toString()]
+            old?.matches(file) != true ||
+                (SevenZRoms.isSevenZip(file.name) && old.entry == null)
+        }
         if (toRead > 0) onProgress(0, toRead, null)
 
         val scanned = mutableListOf<Pair<LibraryFile, RomEntry?>>()
         var read = 0
         var lastPublished = 0L
         for (file in files) {
-            val hit = cached[file.uri.toString()]?.takeIf { it.matches(file) }
+            val hit = cached[file.uri.toString()]?.takeIf {
+                it.matches(file) &&
+                    (!SevenZRoms.isSevenZip(file.name) || it.entry != null)
+            }
             if (hit != null) {
                 scanned += file to hit.entry
                 continue
@@ -380,7 +387,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isLibraryFile(name: String?): Boolean =
-        isRomFile(name) || ZippedRoms.isZip(name)
+        isRomFile(name) || ZippedRoms.isZip(name) || SevenZRoms.isSevenZip(name)
 
     private fun DocumentFile.toRomEntry(): RomEntry? =
         romEntryFor(name ?: getString(R.string.unknown_game_file), documentUri = uri) {
@@ -398,6 +405,7 @@ class MainActivity : AppCompatActivity() {
     ): RomEntry? {
         val fallbackName = fileName.substringBeforeLast('.', fileName)
         var zipEntryName: String? = null
+        var sevenZipEntryName: String? = null
         val identity = open()?.use { input ->
             if (ZippedRoms.isZip(fileName)) {
                 // A zip with no N64 game inside is somebody else's archive.
@@ -406,6 +414,11 @@ class MainActivity : AppCompatActivity() {
                     zipEntryName = rom.name
                     RomIdentityReader.read(zip, fallbackName)
                 }
+            } else if (SevenZRoms.isSevenZip(fileName)) {
+                val result = SevenZRoms.readIdentity(this, input, fallbackName, ::isRomFile)
+                    ?: return null
+                sevenZipEntryName = result.first
+                result.second
             } else {
                 RomIdentityReader.read(input, fallbackName)
             }
@@ -424,6 +437,7 @@ class MainActivity : AppCompatActivity() {
             localFile = localFile,
             documentUri = documentUri,
             zipEntryName = zipEntryName,
+            sevenZipEntryName = sevenZipEntryName,
         )
     }
 
@@ -466,6 +480,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun prepareRomForBoot(entry: RomEntry): File {
+        entry.sevenZipEntryName?.let { entryName ->
+            return SevenZRoms.unpack(this, entry.preferenceKey(), entryName) {
+                entry.localFile?.inputStream() ?: entry.documentUri?.let(contentResolver::openInputStream)
+            }
+        }
         entry.zipEntryName?.let { zipEntryName ->
             return ZippedRoms.unpack(this, entry.preferenceKey(), zipEntryName) {
                 entry.localFile?.inputStream() ?: entry.documentUri?.let(contentResolver::openInputStream)
