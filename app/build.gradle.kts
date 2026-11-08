@@ -29,7 +29,7 @@ android {
         applicationId = "com.izzy2lost.nin64"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
+        versionCode = 7
         versionName = "1.1.2"
 
         ndk {
