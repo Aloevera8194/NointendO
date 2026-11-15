@@ -353,6 +353,23 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        val merged = LinkedHashMap<String, GameGroup>()
+        for (g in gameGroups) {
+            val k = catalogKey(g.title)
+            val prev = merged[k]
+            merged[k] = if (prev == null) {
+                g
+            } else {
+                GameGroup(
+                    title = prev.title,
+                    entries = (prev.entries + g.entries).sortedBy { regionRank(it) },
+                    coverPath = prev.coverPath ?: g.coverPath
+                )
+            }
+        }
+        gameGroups.clear()
+        gameGroups.addAll(merged.values)
+
         val installedKeys = catalogOf.values.map { catalogKey(it.title) }.toSet()
         catalog.forEach { game ->
             if (catalogKey(game.title) !in installedKeys) {
