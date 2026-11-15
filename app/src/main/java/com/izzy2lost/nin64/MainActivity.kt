@@ -291,32 +291,71 @@ class MainActivity : AppCompatActivity() {
         romEntries.clear()
         romEntries.addAll(roms)
 
-        val grouped = LinkedHashMap<String, MutableList<RomEntry>>()
-        for (entry in roms) {
-            val key = catalogKey(entry.cleanDisplayName())
-            grouped.getOrPut(key) { mutableListOf() }.add(entry)
+        val catalog = runCatching { GameCatalog.load(this) }
+            .getOrDefault(emptyList())
+        val catalogByKey = catalog.associateBy { catalogKey(it.title) }
+
+        fun looseName(name: String?): String =
+            catalogKey((name ?: "").substringBefore('(').substringBefore('['))
+
+        fun headerKey(entry: RomEntry): String {
+            val header = catalogKey(entry.headerTitle)
+            val usable = header.length >= 3 &&
+                entry.headerTitle != entry.fallbackName
+            return if (usable) {
+                "h:$header"
+            } else {
+                "n:" + catalogKey(entry.cleanDisplayName())
+            }
         }
 
-        val catalog = runCatching { GameCatalog.load(this) }.getOrDefault(emptyList())
-        val catalogByKey = catalog.associateBy { catalogKey(it.title) }
+        fun regionRank(entry: RomEntry): Int {
+            val n = (entry.databaseName ?: entry.displayName)
+                .lowercase(java.util.Locale.ROOT)
+            var rank = when {
+                "(u)" in n || "(usa" in n || "(world" in n -> 0
+                "(e)" in n || "(europe" in n -> 1
+                else -> 2
+            }
+            if ("hack" in n || "[h" in n || "beta" in n || "proto" in n) {
+                rank += 10
+            }
+            return rank
+        }
+
+        val byHeader = LinkedHashMap<String, MutableList<RomEntry>>()
+        for (entry in roms) {
+            byHeader.getOrPut(headerKey(entry)) { mutableListOf() }.add(entry)
+        }
+
+        val grouped = LinkedHashMap<String, MutableList<RomEntry>>()
+        val catalogOf = HashMap<String, CatalogGame>()
+        for ((hKey, entries) in byHeader) {
+            val match = entries.firstNotNullOfOrNull { e ->
+                catalogByKey[catalogKey(e.cleanDisplayName())]
+                    ?: catalogByKey[looseName(e.databaseName)]
+            }
+            val finalKey = match?.let { "c:" + catalogKey(it.title) } ?: hKey
+            if (match != null) catalogOf[finalKey] = match
+            grouped.getOrPut(finalKey) { mutableListOf() }.addAll(entries)
+        }
 
         gameGroups.clear()
         grouped.forEach { (key, entries) ->
-            val first = entries.first()
-            val catalogGame = catalogByKey[key]
+            val sorted = entries.sortedBy { regionRank(it) }
+            val catalogGame = catalogOf[key]
             gameGroups.add(
                 GameGroup(
-                    title = catalogGame?.title ?: first.cleanDisplayName(),
-                    entries = entries,
+                    title = catalogGame?.title ?: sorted.first().cleanDisplayName(),
+                    entries = sorted,
                     coverPath = catalogGame?.coverPath
                 )
             )
         }
 
-        val installedKeys = grouped.keys
+        val installedKeys = catalogOf.values.map { catalogKey(it.title) }.toSet()
         catalog.forEach { game ->
-            val key = catalogKey(game.title)
-            if (key !in installedKeys) {
+            if (catalogKey(game.title) !in installedKeys) {
                 gameGroups.add(
                     GameGroup(
                         title = game.title,
