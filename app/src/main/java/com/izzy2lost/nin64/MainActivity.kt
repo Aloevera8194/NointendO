@@ -1751,12 +1751,12 @@ class MainActivity : AppCompatActivity() {
             if (cachedCover != null) {
                 holder.cover.load(cachedCover) {
                     crossfade(true)
-                    placeholder(R.drawable.logo)
-                    error(R.drawable.logo)
+                    placeholder(R.drawable.no_cover)
+                    error(R.drawable.no_cover)
                 }
             } else {
                 holder.cover.dispose()
-                holder.cover.setImageResource(R.drawable.logo)
+                holder.cover.setImageResource(R.drawable.no_cover)
             }
 
             holder.itemView.setOnClickListener {
