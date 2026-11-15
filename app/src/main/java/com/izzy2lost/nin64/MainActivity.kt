@@ -1514,6 +1514,15 @@ class MainActivity : AppCompatActivity() {
     private fun archiveFileName(path: String): String =
         path.replace('\\', '/').substringAfterLast('/')
 
+    private fun coverFileForGroup(group: GameGroup): String? {
+        val names = group.entries.flatMap { it.coverCandidates() } + group.title
+        CoverMatcher.resolve(names)?.let { return it }
+        if (!CoverMatcher.isReady()) {
+            return group.entries.firstNotNullOfOrNull { it.coverFile }
+        }
+        return null
+    }
+
     private fun coverFileNameFor(entry: RomEntry): String? {
         CoverMatcher.resolve(entry.coverCandidates())?.let { return it }
         if (!CoverMatcher.isReady()) return entry.coverFile
@@ -1680,8 +1689,7 @@ class MainActivity : AppCompatActivity() {
             ) {
                 java.io.File(group.coverPath)
             } else {
-                val coverFile = entry?.let(::coverFileNameFor)
-                    ?: CoverMatcher.resolve(listOf(group.title))
+                val coverFile = coverFileForGroup(group)
                 coverFile?.let {
                     CoverMatcher.cachedCoverOrQueueDownload(this@MainActivity, it, COVER_BASE_URL) {
                         runOnUiThread { scheduleCoverRefresh() }
