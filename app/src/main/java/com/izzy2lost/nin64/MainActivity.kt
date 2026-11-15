@@ -60,6 +60,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var gridAdapter: GridAdapter
     private val romEntries = mutableListOf<RomEntry>()
     private val gameGroups = mutableListOf<GameGroup>()
+    private val allGroups = mutableListOf<GameGroup>()
+    private var searchQuery = ""
     private var viewMode: String = VIEW_MODE_LIST
     private var pendingTexturePackEntry: RomEntry? = null
     @Volatile private var coverWarmupGeneration = 0
@@ -124,6 +126,18 @@ class MainActivity : AppCompatActivity() {
 
         listAdapter = ListAdapter()
         gridAdapter = GridAdapter()
+        findViewById<android.widget.EditText>(R.id.searchEdit)
+            .addTextChangedListener(object : android.text.TextWatcher {
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    searchQuery = s?.toString().orEmpty()
+                    applySearchFilter()
+                    romRecyclerView.adapter?.notifyDataSetChanged()
+                    updateGamesHeader(gameGroups.size)
+                }
+                override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+                override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            })
+
 
         RomDatabase.init(this, File(preferredRootDir(), "Mupen64plus/mupen64plus.ini"))
         CoverMatcher.init(this, "$COVER_BASE_URL/index.txt") {
@@ -294,6 +308,16 @@ class MainActivity : AppCompatActivity() {
             .replace("[^a-z0-9]+".toRegex(), " ")
             .trim()
 
+    private fun applySearchFilter() {
+        val q = catalogKey(searchQuery)
+        gameGroups.clear()
+        if (q.isEmpty()) {
+            gameGroups.addAll(allGroups)
+        } else {
+            gameGroups.addAll(allGroups.filter { catalogKey(it.title).contains(q) })
+        }
+    }
+
     private fun showRoms(roms: List<RomEntry>) {
         romEntries.clear()
         romEntries.addAll(roms)
@@ -391,6 +415,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         gameGroups.sortBy { catalogKey(it.title) }
+        allGroups.clear()
+        allGroups.addAll(gameGroups)
+        applySearchFilter()
         romRecyclerView.adapter?.notifyDataSetChanged()
         updateGamesHeader(gameGroups.size)
         emptyRomListText.visibility =
