@@ -307,12 +307,12 @@ class MainActivity : AppCompatActivity() {
 
         fun headerKey(entry: RomEntry): String {
             val header = catalogKey(entry.headerTitle)
-            val usable = header.length >= 3 &&
+            val usable = entry.databaseName != null && header.length >= 3 &&
                 entry.headerTitle != entry.fallbackName
             return if (usable) {
                 "h:$header"
             } else {
-                "n:" + catalogKey(entry.cleanDisplayName())
+                "n:" + looseName(entry.fallbackName)
             }
         }
 
@@ -339,7 +339,7 @@ class MainActivity : AppCompatActivity() {
         val catalogOf = HashMap<String, CatalogGame>()
         for ((hKey, entries) in byHeader) {
             val match = entries.firstNotNullOfOrNull { e ->
-                catalogByKey[catalogKey(e.cleanDisplayName())]
+                e.databaseName?.let { catalogByKey[catalogKey(e.cleanDisplayName())] }
                     ?: catalogByKey[looseName(e.databaseName)]
             }
             val finalKey = match?.let { "c:" + catalogKey(it.title) } ?: hKey
@@ -353,7 +353,7 @@ class MainActivity : AppCompatActivity() {
             val catalogGame = catalogOf[key]
             gameGroups.add(
                 GameGroup(
-                    title = catalogGame?.title ?: sorted.first().cleanDisplayName(),
+                    title = catalogGame?.title ?: sorted.first().let { e -> if (e.databaseName != null) e.cleanDisplayName() else e.fallbackName.substringBefore('(').substringBefore('[').trim().ifBlank { e.fallbackName } },
                     entries = sorted,
                     coverPath = catalogGame?.coverPath
                 )
