@@ -133,6 +133,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        CoverMatcher.initExtra(this) {
+            runOnUiThread {
+                scheduleCoverRefresh()
+                warmCoverCache(romEntries.toList())
+            }
+        }
+
         viewMode = prefs.getString(PREF_VIEW_MODE, VIEW_MODE_LIST) ?: VIEW_MODE_LIST
         applyViewMode()
 

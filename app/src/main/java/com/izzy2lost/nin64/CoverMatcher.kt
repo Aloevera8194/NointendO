@@ -30,6 +30,13 @@ internal object CoverMatcher {
 
     @Volatile private var normToFile: Map<String, String> = emptyMap()
     @Volatile private var ready = false
+    private const val LR_PREFIX = "lr:"
+    private const val LR_BASE_URL =
+        "https://thumbnails.libretro.com/Nintendo%20-%20Nintendo%2064/Named_Boxarts"
+    private const val KEY_DATA_LR = "data_libretro"
+    private const val KEY_TS_LR = "ts_libretro"
+    @Volatile private var extraNormToFile: Map<String, String> = emptyMap()
+    @Volatile private var extraInFlight = false
     @Volatile private var indexRefreshInFlight = false
     private val inFlightDownloads = mutableSetOf<String>()
     private val resolutionCache = mutableMapOf<String, String?>()
@@ -65,6 +72,84 @@ internal object CoverMatcher {
         } else {
             refreshIndexAsync(appContext, indexUrl, onReady)
         }
+    }
+
+    /** Second cover source: the libretro thumbnails server (has Japanese titles). */
+    fun initExtra(context: Context, onReady: (() -> Unit)? = null) {
+        val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val cached = prefs.getString(KEY_DATA_LR, null)
+        val age = System.currentTimeMillis() - prefs.getLong(KEY_TS_LR, 0)
+        synchronized(this) {
+            if (extraInFlight) return
+            extraInFlight = true
+        }
+        Thread {
+            try {
+                if (cached != null && extraNormToFile.isEmpty()) {
+                    applyExtra(cached)
+                    onReady?.invoke()
+                }
+                if (cached == null || age > TTL_MS) {
+                    val html = URL("$LR_BASE_URL/").readText()
+                    val names = Regex("href=\"([^\"]+\\.png)\"")
+                        .findAll(html)
+                        .map { Uri.decode(it.groupValues[1]) }
+                        .filter { !it.startsWith("/") }
+                        .joinToString("\n")
+                    if (names.isNotBlank()) {
+                        prefs.edit()
+                            .putString(KEY_DATA_LR, names)
+                            .putLong(KEY_TS_LR, System.currentTimeMillis())
+                            .apply()
+                        applyExtra(names)
+                        onReady?.invoke()
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                extraInFlight = false
+            }
+        }.apply {
+            name = "Nin64-CoverIndexLR"
+            start()
+        }
+    }
+
+    private fun applyExtra(text: String) {
+        extraNormToFile = text.lines()
+            .filter { it.endsWith(".png") }
+            .sortedBy { if ("(USA" in it || "(World" in it) 1 else 0 }
+            .associateBy { normalize(stripKnownExtension(it)) }
+        synchronized(resolutionCache) {
+            resolutionCache.clear()
+        }
+    }
+
+    private fun resolveExtra(normNames: List<String>): String? {
+        val index = extraNormToFile
+        if (index.isEmpty()) return null
+
+        for (n in normNames) {
+            index[n]?.let { return LR_PREFIX + it }
+        }
+        for (n in normNames) {
+            if (n.length < 5) continue
+            val hits = index.entries.filter { (k, _) ->
+                k.startsWith(n) || (k.length >= 5 && n.startsWith(k))
+            }
+            if (hits.isNotEmpty()) {
+                return LR_PREFIX +
+                    hits.minBy { (k, _) -> kotlin.math.abs(k.length - n.length) }.value
+            }
+        }
+        return normNames
+            .asSequence()
+            .flatMap { n -> index.entries.asSequence().map { (k, v) -> v to similarity(n, k) } }
+            .filter { (_, score) -> score >= 0.85f }
+            .maxByOrNull { (_, s) -> s }
+            ?.first
+            ?.let { LR_PREFIX + it }
     }
 
     fun isReady(): Boolean = ready
@@ -132,7 +217,7 @@ internal object CoverMatcher {
             }
         }
 
-        val resolved = resolveNormalized(normNames)
+        val resolved = resolveNormalized(normNames) ?: resolveExtra(normNames)
         synchronized(resolutionCache) {
             resolutionCache[cacheKey] = resolved
         }
@@ -294,7 +379,11 @@ internal object CoverMatcher {
         File(context.filesDir, COVER_CACHE_DIR).apply { mkdirs() }
 
     private fun remoteCoverUrl(baseUrl: String, coverFileName: String): String =
-        "$baseUrl/${Uri.encode(coverFileName)}"
+        if (coverFileName.startsWith(LR_PREFIX)) {
+            "$LR_BASE_URL/${Uri.encode(coverFileName.removePrefix(LR_PREFIX))}"
+        } else {
+            "$baseUrl/${Uri.encode(coverFileName)}"
+        }
 
     private fun wasRecentlyNotFound(context: Context, coverFileName: String): Boolean {
         val notFoundAt = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
